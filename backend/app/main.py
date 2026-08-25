@@ -9,13 +9,15 @@ from contextlib import asynccontextmanager
 import json
 import importlib
 import secrets
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from app.agents.merchant import run_turn
 from app.auth import require_buyer
+from app.create_buyer import create_buyer
 from app import invoicing
 from app.db import (
     Buyer,
@@ -34,6 +36,7 @@ from app.db import (
     update_order_invoice,
     save_negotiation,
 )
+from app.seed import ensure_seeded
 from app.policy import PolicySession, check
 from app.schemas import (
     CatalogProduct,
@@ -76,6 +79,47 @@ def _merchant_move_out(result) -> MerchantMoveOut:
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "catalogagent"}
+
+
+@app.on_event("startup")
+def _seed_on_startup():
+    ensure_seeded()
+
+
+@app.get("/")
+def ui_root():
+    """Serve the single-file demo UI."""
+    index_path = Path(__file__).resolve().parent.parent / "static" / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="UI not found")
+    return FileResponse(index_path)
+
+
+@app.post("/ui/session")
+def ui_session():
+    """Auto-provision a demo buyer key + negotiation so the UI needs zero setup.
+
+    Creates a throwaway buyer (demo_<rand>) with a generous budget, opens a
+    negotiation on the demo product, and returns the key + negotiation_id.
+    The UI injects the key as the X-Buyer-Key header for all later calls.
+    """
+    buyer_name = f"demo_{secrets.token_hex(4)}"
+    key = create_buyer(buyer_name, budget_cap=1_000_000.0)
+    negotiation_id = create_negotiation(
+        buyer_id=buyer_name,
+        product_id="elec-conn-001",
+        initial_volume=1000,
+    )
+    append_audit(
+        negotiation_id, 0, "system", "negotiation_opened",
+        {"buyer_id": buyer_name, "product_id": "elec-conn-001", "initial_volume": 1000},
+    )
+    return {
+        "buyer_key": key,
+        "buyer_id": buyer_name,
+        "negotiation_id": negotiation_id,
+        "product_id": "elec-conn-001",
+    }
 
 
 @app.get("/catalog", response_model=list[CatalogProduct])

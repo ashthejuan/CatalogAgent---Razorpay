@@ -159,6 +159,22 @@ def seed_products() -> int:
     return len(PRODUCTS)
 
 
+def ensure_seeded() -> int:
+    """Idempotent seed for server startup: seed only if products table is empty.
+
+    Unlike seed_products(), this never clears existing data — safe to call on
+    every app boot so the UI/demo always has catalog data without wiping a
+    populated database.
+    """
+    from app.db import get_product
+
+    if get_product(PRODUCTS[0].id) is not None:
+        return 0
+    for product in PRODUCTS:
+        upsert_product(product)
+    return len(PRODUCTS)
+
+
 if __name__ == "__main__":
     init_db()
     count = seed_products()
