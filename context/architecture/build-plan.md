@@ -36,24 +36,24 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 1.1 — Schema + DB foundation
 
-- [ ] `schemas.py`: Pydantic models — `Product`, `VolumeTier`, `CounterOffer` (all 5 fields), `QuoteRequest`, `OrderTerms`, `Verdict`
-- [ ] `db.py`: sqlite init creating all 5 tables exactly per architecture.md §4
-- [ ] Seed script: ~10 products across 3 categories, each with 3–4 volume tiers incl. floor prices
+- [x] `schemas.py`: Pydantic models — `Product`, `VolumeTier`, `CounterOffer` (all 5 fields), `QuoteRequest`, `OrderTerms`, `Verdict`
+- [x] `db.py`: sqlite init creating `products` + `buyers` (negotiations/audit/orders deferred to later phases)
+- [x] Seed script: ~10 products across 3 categories, each with 3–4 volume tiers incl. floor prices
 
 
 
 ### Step 1.2 — Key provisioning CLI
 
-- [ ] `create_buyer.py`: takes name + budget cap → generates `bk_...` key → prints ONCE → stores SHA-256 hash (+pepper if set) in `buyers`
-- [ ] Test: provision 3 buyers (`acme`, `globex`, `initech`) for demos; keys into `.env`
+- [x] `create_buyer.py`: takes name + budget cap → generates `bk_...` key → prints ONCE → stores SHA-256 hash (+pepper if set) in `buyers`
+- [x] Test: provision 3 buyers (`acme`, `globex`, `initech`) for demos; keys into `.env`
 
 
 
 ### Step 1.3 — `GET /catalog`
 
-- [ ] Route returns full catalog as agent-readable JSON (products, tiers, stock, lead times)
+- [x] Route returns full catalog as agent-readable JSON (products, tiers, stock, lead times)
 - [ ] README curl example works against running server
-- [ ] Test: response validates against `Product` schema
+- [x] Test: response validates against `Product` schema
 
 **Exit criteria:** `curl localhost:8000/catalog | jq` shows clean JSON; buyers table has hashed rows only (`SELECT * FROM buyers` proves no plaintext).
 
