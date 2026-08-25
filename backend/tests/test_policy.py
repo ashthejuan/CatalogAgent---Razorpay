@@ -44,8 +44,15 @@ def test_pass_at_tier_boundary(policy_context):
     db, policy = policy_context
     product = db.get_product("elec-conn-001")
     tier = product.volume_tiers[0]
+    # Price exactly at floor, with standard (non-rush) delivery + immediate terms:
+    # isolates the price-floor boundary. Rush/terms erode margin separately.
     verdict = policy.check(
-        _offer(unit_price=tier.floor_price, min_volume=tier.min_qty),
+        _offer(
+            unit_price=tier.floor_price,
+            min_volume=tier.min_qty,
+            payment_terms_days=0,
+            delivery_days=product.lead_time_max_days,
+        ),
         policy.PolicySession(product.id, 0),
     )
     assert verdict.passed
@@ -110,18 +117,67 @@ def test_fuzz_no_illegal_pass(policy_context):
         verdict = policy.check(offer, session)
         if verdict.passed:
             tiers = sorted(product.volume_tiers, key=lambda tier: tier.min_qty)
-            tier = max(
-                (t for t in tiers if t.min_qty <= offer.min_volume),
-                default=tiers[-1],
-                key=lambda t: t.min_qty,
-            )
-            margin = offer.unit_price - tier.floor_price
-            margin -= offer.payment_terms_days * 0.0005 * offer.unit_price
-            if offer.delivery_days < product.lead_time_min_days:
-                margin -= (product.lead_time_min_days - offer.delivery_days) * 0.01 * offer.unit_price
+            qualifying = [t for t in tiers if t.min_qty <= offer.min_volume]
+            assert qualifying, "passed but volume below all MOQs"
+            tier = max(qualifying, key=lambda t: t.min_qty)
             assert offer.unit_price >= tier.floor_price
             assert offer.payment_terms_days <= 45
             assert offer.delivery_days >= product.lead_time_min_days
             assert offer.min_volume <= product.stock
             assert session.turn_count < session.max_turns
+            margin = offer.unit_price - tier.floor_price
+            margin -= offer.payment_terms_days * 0.0005 * offer.unit_price
+            if offer.delivery_days < product.lead_time_max_days:
+                margin -= (product.lead_time_max_days - offer.delivery_days) * 0.01 * offer.unit_price
+            if offer.recurring:
+                margin -= 0.02 * offer.unit_price
             assert margin >= 0
+
+
+def test_sub_moq_fails(policy_context):
+    db, policy = policy_context
+    product = db.get_product("elec-conn-001")
+    lowest_moq = min(t.min_qty for t in product.volume_tiers)
+    # volume below the lowest tier MOQ must FAIL (not be graded against top tier)
+    verdict = policy.check(_offer(min_volume=lowest_moq - 1), policy.PolicySession(product.id, 0))
+    assert not verdict.passed
+    assert "below minimum tier MOQ" in verdict.reason
+    # negative volume also fails
+    neg = policy.check(_offer(min_volume=-100), policy.PolicySession(product.id, 0))
+    assert not neg.passed
+    assert "below minimum tier MOQ" in neg.reason
+
+
+def test_rush_delivery_margin_trap(policy_context):
+    db, policy = policy_context
+    product = db.get_product("elec-conn-001")
+    # price at floor, standard terms, but delivery far below the STANDARD max
+    # lead time (not just the hard min) — margin must erode via rush penalty.
+    offer = _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_min_days)
+    verdict = policy.check(offer, policy.PolicySession(product.id, 0))
+    assert not verdict.passed
+    assert "composite margin negative" in verdict.reason or "rush" in verdict.reason
+
+
+def test_recurring_is_considered(policy_context):
+    db, policy = policy_context
+    product = db.get_product("elec-conn-001")
+    session = policy.PolicySession(product.id, 0)
+    base = _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_max_days, recurring=False)
+    recurring = _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_max_days, recurring=True)
+    assert policy.check(base, session).passed
+    # recurring version extracts an extra 2% margin concession -> may tip negative
+    assert not policy.check(recurring, session).passed
+    assert "recurring" in policy.check(recurring, session).reason
+
+
+def test_pass_reason_includes_margin_pct(policy_context):
+    db, policy = policy_context
+    product = db.get_product("elec-conn-001")
+    verdict = policy.check(
+        _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_max_days, recurring=False),
+        policy.PolicySession(product.id, 0),
+    )
+    assert verdict.passed
+    assert "effective margin" in verdict.reason
+

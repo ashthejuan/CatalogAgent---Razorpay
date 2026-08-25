@@ -1,8 +1,10 @@
 import sqlite3
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app import db as db_module
+from app.main import app
 from app.schemas import CounterOffer
 
 
@@ -83,3 +85,40 @@ def test_audit_payload_roundtrips_json(policy_ctx):
     trail = db.get_audit_trail("neg_4")
     assert trail[0]["payload"]["payment_terms_days"] == 30
     assert trail[0]["payload"]["recurring"] is False
+
+
+def test_audit_formatted_multiturn_snapshot(policy_ctx):
+    db, _ = policy_ctx
+    db.append_audit("neg_5", 1, "buyer_agent", "counter_offer", {"unit_price": 9.0, "min_volume": 5000})
+    db.append_audit("neg_5", 1, "policy_engine", "guardrail_check", {"unit_price": 9.0}, verdict="FAIL", reason="unit_price 9.00 < floor 10.30 for tier 5000+")
+    db.append_audit("neg_5", 2, "merchant_llm", "counter_offer", {"unit_price": 10.30, "min_volume": 5000})
+    db.append_audit("neg_5", 2, "policy_engine", "guardrail_check", {"unit_price": 10.30}, verdict="PASS", reason="all bounds satisfied; effective margin 0.0%")
+    text = db.format_audit_trail("neg_5")
+    # both sides of two turns present, in order, with verdicts
+    assert text.count("FAIL") == 1
+    assert text.count("PASS") == 1
+    assert "buyer_agent" in text and "merchant_llm" in text and "policy_engine" in text
+    lines = text.splitlines()
+    assert lines[1].startswith("-")  # header rule
+    assert "turn 1 " in text and "turn 2 " in text
+
+
+def test_audit_endpoint_http(policy_ctx):
+    db, _ = policy_ctx
+    db.append_audit("neg_6", 1, "merchant_llm", "counter_offer", {"unit_price": 10.5})
+    with TestClient(app) as client:
+        r = client.get("/audit/neg_6")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["negotiation_id"] == "neg_6"
+    assert len(body["trail"]) == 1
+    assert body["trail"][0]["actor"] == "merchant_llm"
+    assert "text" in body and "neg_6" in body["text"]
+
+
+def test_audit_endpoint_empty_http(policy_ctx):
+    with TestClient(app) as client:
+        r = client.get("/audit/does_not_exist")
+    assert r.status_code == 200
+    assert r.json()["trail"] == []
+    assert "no audit trail" in r.json()["text"]
