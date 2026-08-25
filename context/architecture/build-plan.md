@@ -85,6 +85,7 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 - [x] **Recurring lever**: package that FAILS one-off PASSES when `recurring=True` (correct sign)
 - [x] Turn-limit exhaustion
 - [x] Property test: fuzz 500 random offers, assert no illegal offer ever gets PASS
+
 **Exit criteria:** `pytest` green (26 tests); policy.py readable top-to-bottom by a non-author. Do not proceed until this is true.
 
 ---
@@ -149,17 +150,17 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 5.1 — Adversarial buyer agent
 
-- [ ] `agents/buyer.py`: separate module, separate system prompt, own budget cap, aggressive tactics (repeated lowballs, abandonment threats, probing volume tiers)
-- [ ] Same tool-call discipline: structured proposals only
-- [ ] NO shared context with merchant agent (verify: no imports between them beyond schemas/db)
+- [x] `agents/buyer.py`: separate module, separate system prompt, own budget cap, aggressive tactics (repeated lowballs, abandonment threats, probing volume tiers)
+- [x] Same tool-call discipline: structured proposals only
+- [x] NO shared context with merchant agent (verify: no imports between them beyond schemas/db)
 
 
 
 ### Step 5.2 — Multi-turn orchestration
 
-- [ ] Demo harness `run_demo.py`: scenario runner driving N turns over HTTP until accept/block/escalate/max-turns
-- [ ] Scenarios: (a) reasonable buyer → deal closes; (b) aggressive lowballer → guardrail wall → graceful counters → escalation; (c) creative reroute — merchant holds price but concedes terms/volume instead
-- [ ] Each scenario ends printing the audit table
+- [x] Demo harness `run_demo.py`: scenario runner driving N turns over HTTP until accept/block/escalate/max-turns
+- [x] Scenarios: (a) reasonable buyer → deal closes; (b) aggressive lowballer → guardrail wall → graceful counters → escalation; (c) creative reroute — merchant holds price but concedes terms/volume instead
+- [x] Each scenario ends printing the audit table
 
 **Exit criteria:** all three scenarios run green end-to-end repeatedly (not cherry-picked); scenario (b)'s audit table shows proposal→FAIL→fallback rows side by side. Record nothing yet.
 

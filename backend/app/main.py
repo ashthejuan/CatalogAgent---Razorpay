@@ -6,12 +6,17 @@
 import app.config  # noqa: F401 — load .env at startup
 
 from contextlib import asynccontextmanager
+import json
+import importlib
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import Response
 
 from app.agents.merchant import run_turn
 from app.auth import require_buyer
+from app import invoicing
 from app.db import (
     Buyer,
     Negotiation,
@@ -21,9 +26,12 @@ from app.db import (
     format_audit_trail,
     get_audit_trail,
     get_negotiation,
+    get_order,
     get_product,
     get_public_catalog,
     init_db,
+    insert_order,
+    update_order_invoice,
     save_negotiation,
 )
 from app.policy import PolicySession, check
@@ -33,6 +41,7 @@ from app.schemas import (
     MerchantMoveOut,
     NegotiateBody,
     NegotiateResponse,
+    OrderTerms,
     QuoteBody,
     QuoteResponse,
 )
@@ -133,6 +142,36 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
     if result.action == "accept":
         negotiation.status = "CLOSED_WON"
         final_terms = result.offer
+        try:
+            payments = importlib.import_module("app.payments")
+            order_terms = OrderTerms(
+                **final_terms.model_dump(),
+                product_id=negotiation.product_id,
+                negotiation_id=negotiation.id,
+            )
+            razorpay_order = payments.create_order(order_terms)
+            order_row = {
+                "id": f"order_{secrets.token_hex(8)}",
+                "negotiation_id": negotiation.id,
+                "terms": json.dumps(order_terms.model_dump()),
+                "razorpay_order_id": razorpay_order["id"],
+                "invoice_path": None,
+            }
+            insert_order(order_row)
+            append_audit(
+                negotiation.id, turn, "payments", "order_created",
+                {"razorpay_order_id": razorpay_order["id"]},
+            )
+            invoice_path = invoicing.save_invoice(order_row)
+            update_order_invoice(order_row["id"], invoice_path)
+            append_audit(
+                negotiation.id, turn, "payments", "invoice_generated",
+                {"invoice_path": invoice_path},
+            )
+        except Exception as e:
+            append_audit(
+                negotiation.id, turn, "payments", "order_failed", {"error": str(e)}
+            )
     elif result.action == "escalate":
         negotiation.status = "ESCALATED"
     elif result.offer is not None:
@@ -166,3 +205,18 @@ def audit(negotiation_id: str, buyer: Annotated[Buyer, Depends(require_buyer)]):
         "trail": get_audit_trail(negotiation_id),
         "text": format_audit_trail(negotiation_id),
     }
+
+
+@app.get("/invoices/{order_id}")
+def invoice(order_id: str, buyer: Annotated[Buyer, Depends(require_buyer)]):
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    _require_negotiation_owner(order["negotiation_id"], buyer)
+    try:
+        content = invoicing.get_invoice_bytes(order_id)
+    except (FileNotFoundError, OSError):
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return Response(content, media_type="application/pdf", headers={
+        "Content-Disposition": f'inline; filename="{order_id}.pdf"'
+    })

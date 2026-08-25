@@ -317,6 +317,39 @@ def append_audit(
         return cur.lastrowid
 
 
+def insert_order(order: dict) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO orders (id, negotiation_id, terms, razorpay_order_id, invoice_path) VALUES (?, ?, ?, ?, ?)",
+            (
+                order["id"],
+                order["negotiation_id"],
+                order["terms"],
+                order.get("razorpay_order_id"),
+                order.get("invoice_path"),
+            ),
+        )
+
+
+def get_order(order_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_order_invoice(order_id: str, invoice_path: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE orders SET invoice_path = ? WHERE id = ?", (invoice_path, order_id))
+
+
+def get_order_by_negotiation(negotiation_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM orders WHERE negotiation_id = ?", (negotiation_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_audit_trail(negotiation_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
