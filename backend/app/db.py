@@ -49,7 +49,21 @@ def init_db() -> None:
                 budget_cap REAL NOT NULL
             );
 
-            -- Phase 3+: negotiations, audit_log, orders tables added here.
+            -- Phase 3: append-only audit trail. No UPDATE/DELETE is ever issued
+            -- against this table anywhere in the codebase (enforced by review + tests).
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                negotiation_id TEXT NOT NULL,
+                turn INTEGER NOT NULL,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                verdict TEXT,
+                reason TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            -- Phase 4/6 will add: negotiations, orders.
             """
         )
 
@@ -156,6 +170,78 @@ def insert_buyer(buyer_id: str, key_hash: str, budget_cap: float) -> None:
             "INSERT INTO buyers (buyer_key_hash, buyer_id, budget_cap) VALUES (?, ?, ?)",
             (key_hash, buyer_id, budget_cap),
         )
+
+
+def _audit_row_to_dict(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "negotiation_id": row["negotiation_id"],
+        "turn": row["turn"],
+        "actor": row["actor"],
+        "action": row["action"],
+        "payload": json.loads(row["payload"]),
+        "verdict": row["verdict"],
+        "reason": row["reason"],
+        "created_at": row["created_at"],
+    }
+
+
+def append_audit(
+    negotiation_id: str,
+    turn: int,
+    actor: str,
+    action: str,
+    payload: dict,
+    verdict: str | None = None,
+    reason: str | None = None,
+) -> int:
+    """Append-only write to the audit trail. There is no update/delete path.
+
+    Returns the new row id.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO audit_log
+                (negotiation_id, turn, actor, action, payload, verdict, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                negotiation_id,
+                turn,
+                actor,
+                action,
+                json.dumps(payload),
+                verdict,
+                reason,
+            ),
+        )
+        return cur.lastrowid
+
+
+def get_audit_trail(negotiation_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE negotiation_id = ? ORDER BY id ASC",
+            (negotiation_id,),
+        ).fetchall()
+    return [_audit_row_to_dict(row) for row in rows]
+
+
+def format_audit_trail(negotiation_id: str) -> str:
+    """Render the trail as a readable aligned table (used by endpoint + demo)."""
+    trail = get_audit_trail(negotiation_id)
+    if not trail:
+        return f"no audit trail for {negotiation_id}"
+    lines = [f"audit trail: {negotiation_id}", "-" * 64]
+    for e in trail:
+        verdict = e["verdict"] or "-"
+        reason = f" | {e['reason']}" if e["reason"] else ""
+        lines.append(
+            f"turn {e['turn']:<2} {e['actor']:<12} {e['action']:<14} "
+            f"[{verdict}]{reason}"
+        )
+    return "\n".join(lines)
 
 
 def clear_products() -> None:

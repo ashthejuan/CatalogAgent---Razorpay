@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.db import get_public_catalog, init_db
+from app.db import get_public_catalog, init_db, format_audit_trail, get_audit_trail
 from app.schemas import CatalogProduct
 
 
@@ -30,3 +30,13 @@ def health():
 @app.get("/catalog", response_model=list[CatalogProduct])
 def catalog():
     return get_public_catalog()
+
+
+@app.get("/audit/{negotiation_id}")
+def audit(negotiation_id: str):
+    """Read-only audit trail for a negotiation (append-only table behind this)."""
+    return {
+        "negotiation_id": negotiation_id,
+        "trail": get_audit_trail(negotiation_id),
+        "text": format_audit_trail(negotiation_id),
+    }
