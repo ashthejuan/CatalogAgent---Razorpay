@@ -1,6 +1,8 @@
 """Pydantic models: CounterOffer, QuoteRequest, OrderTerms, Verdict."""
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class VolumeTier(BaseModel):
@@ -61,6 +63,37 @@ class CounterOffer(BaseModel):
     delivery_days: int
     recurring: bool
 
+    @model_validator(mode="before")
+    @classmethod
+    def _shape_contract_values(cls, data):
+        """Tighten LLM-supplied values into clean contract form.
+
+        - ``unit_price`` is currency: round to 2dp so garbage precision
+          (e.g. ``10.050761421319798``) never reaches the policy engine or
+          a downstream Razorpay paise conversion.
+        - integer fields are coerced from strings/decimals defensively, so
+          the schema stays clean even if the transport-layer coercion (Option A)
+          is bypassed.
+        """
+        if not isinstance(data, dict):
+            return data
+        up = data.get("unit_price")
+        if isinstance(up, (int, float, str)):
+            try:
+                data["unit_price"] = round(float(up), 2)
+            except (TypeError, ValueError):
+                pass  # leave for field-level validation to reject
+        for key in ("min_volume", "payment_terms_days", "delivery_days"):
+            v = data.get(key)
+            if isinstance(v, str):
+                try:
+                    data[key] = int(float(v))
+                except (TypeError, ValueError):
+                    pass
+            elif isinstance(v, float):
+                data[key] = int(v)
+        return data
+
 
 class QuoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -78,3 +111,35 @@ class OrderTerms(CounterOffer):
 class Verdict(BaseModel):
     passed: bool
     reason: str
+
+
+class QuoteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: str
+    buyer_id: str
+    initial_volume: int | None = None
+
+
+class QuoteResponse(BaseModel):
+    negotiation_id: str
+
+
+class NegotiateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    negotiation_id: str
+    buyer_offer: CounterOffer
+
+
+class MerchantMoveOut(BaseModel):
+    action: Literal["counter_offer", "accept", "escalate"]
+    offer: CounterOffer | None = None
+    reason: str | None = None
+
+
+class NegotiateResponse(BaseModel):
+    status: Literal["OPEN", "CLOSED_WON", "ESCALATED"]
+    merchant_move: MerchantMoveOut
+    audit_excerpt: str
+    final_terms: CounterOffer | None = None

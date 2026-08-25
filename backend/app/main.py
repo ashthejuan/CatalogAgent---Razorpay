@@ -6,11 +6,36 @@
 import app.config  # noqa: F401 — load .env at startup
 
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 
-from app.db import get_public_catalog, init_db, format_audit_trail, get_audit_trail
-from app.schemas import CatalogProduct
+from app.agents.merchant import run_turn
+from app.auth import require_buyer
+from app.db import (
+    Buyer,
+    Negotiation,
+    append_audit,
+    audit_excerpt,
+    create_negotiation,
+    format_audit_trail,
+    get_audit_trail,
+    get_negotiation,
+    get_product,
+    get_public_catalog,
+    init_db,
+    save_negotiation,
+)
+from app.policy import PolicySession, check
+from app.schemas import (
+    CatalogProduct,
+    CounterOffer,
+    MerchantMoveOut,
+    NegotiateBody,
+    NegotiateResponse,
+    QuoteBody,
+    QuoteResponse,
+)
 
 
 @asynccontextmanager
@@ -20,6 +45,23 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CatalogAgent", lifespan=lifespan)
+
+
+def _require_negotiation_owner(negotiation_id: str, buyer: Buyer) -> Negotiation:
+    negotiation = get_negotiation(negotiation_id)
+    if negotiation is None:
+        raise HTTPException(status_code=404, detail="negotiation not found")
+    if negotiation.buyer_id != buyer.buyer_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return negotiation
+
+
+def _merchant_move_out(result) -> MerchantMoveOut:
+    return MerchantMoveOut(
+        action=result.action,
+        offer=result.offer,
+        reason=result.reason,
+    )
 
 
 @app.get("/health")
@@ -32,9 +74,93 @@ def catalog():
     return get_public_catalog()
 
 
+@app.post("/quote", response_model=QuoteResponse)
+def quote(body: QuoteBody, buyer: Annotated[Buyer, Depends(require_buyer)]):
+    if body.buyer_id != buyer.buyer_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    if get_product(body.product_id) is None:
+        raise HTTPException(status_code=404, detail="product not found")
+
+    negotiation_id = create_negotiation(
+        buyer_id=body.buyer_id,
+        product_id=body.product_id,
+        initial_volume=body.initial_volume,
+    )
+    append_audit(
+        negotiation_id,
+        0,
+        "system",
+        "negotiation_opened",
+        {
+            "buyer_id": body.buyer_id,
+            "product_id": body.product_id,
+            "initial_volume": body.initial_volume,
+        },
+    )
+    return QuoteResponse(negotiation_id=negotiation_id)
+
+
+@app.post("/negotiate", response_model=NegotiateResponse)
+def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer)]):
+    negotiation = _require_negotiation_owner(body.negotiation_id, buyer)
+    if negotiation.status != "OPEN":
+        raise HTTPException(status_code=409, detail=f"negotiation is {negotiation.status}")
+
+    turn = negotiation.turn_count + 1
+    append_audit(
+        negotiation.id,
+        turn,
+        "buyer_agent",
+        "counter_offer",
+        body.buyer_offer.model_dump(),
+    )
+    negotiation.history.append(
+        {
+            "turn": turn,
+            "actor": "buyer_agent",
+            "offer": body.buyer_offer.model_dump(),
+        }
+    )
+
+    session = PolicySession(negotiation.product_id, negotiation.turn_count)
+    if check(body.buyer_offer, session).passed:
+        negotiation.last_valid_buyer_offer = body.buyer_offer
+
+    result = run_turn(negotiation, body.buyer_offer)
+    move = _merchant_move_out(result)
+
+    final_terms: CounterOffer | None = None
+    if result.action == "accept":
+        negotiation.status = "CLOSED_WON"
+        final_terms = result.offer
+    elif result.action == "escalate":
+        negotiation.status = "ESCALATED"
+    elif result.offer is not None:
+        negotiation.history.append(
+            {
+                "turn": turn,
+                "actor": "merchant_llm",
+                "action": result.action,
+                "offer": result.offer.model_dump(),
+                "reason": result.reason,
+            }
+        )
+
+    negotiation.turn_count += 1
+    save_negotiation(negotiation)
+
+    return NegotiateResponse(
+        status=negotiation.status,
+        merchant_move=move,
+        audit_excerpt=audit_excerpt(negotiation.id),
+        final_terms=final_terms,
+    )
+
+
 @app.get("/audit/{negotiation_id}")
-def audit(negotiation_id: str):
-    """Read-only audit trail for a negotiation (append-only table behind this)."""
+def audit(negotiation_id: str, buyer: Annotated[Buyer, Depends(require_buyer)]):
+    """Read-only audit trail — buyer key + negotiation ownership required."""
+    _require_negotiation_owner(negotiation_id, buyer)
     return {
         "negotiation_id": negotiation_id,
         "trail": get_audit_trail(negotiation_id),

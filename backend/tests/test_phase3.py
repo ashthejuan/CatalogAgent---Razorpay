@@ -105,20 +105,31 @@ def test_audit_formatted_multiturn_snapshot(policy_ctx):
 
 def test_audit_endpoint_http(policy_ctx):
     db, _ = policy_ctx
-    db.append_audit("neg_6", 1, "merchant_llm", "counter_offer", {"unit_price": 10.5})
+    import app.create_buyer as create_buyer_module
+
+    key = create_buyer_module.create_buyer("auditbuyer", 10000.0)
+    negotiation_id = db.create_negotiation("auditbuyer", "elec-conn-001")
+    db.append_audit(negotiation_id, 1, "merchant_llm", "counter_offer", {"unit_price": 10.5})
     with TestClient(app) as client:
-        r = client.get("/audit/neg_6")
+        r = client.get(f"/audit/{negotiation_id}", headers={"X-Buyer-Key": key})
     assert r.status_code == 200
     body = r.json()
-    assert body["negotiation_id"] == "neg_6"
+    assert body["negotiation_id"] == negotiation_id
     assert len(body["trail"]) == 1
     assert body["trail"][0]["actor"] == "merchant_llm"
-    assert "text" in body and "neg_6" in body["text"]
+    assert "text" in body and negotiation_id in body["text"]
 
 
-def test_audit_endpoint_empty_http(policy_ctx):
+def test_audit_endpoint_requires_auth(policy_ctx):
     with TestClient(app) as client:
         r = client.get("/audit/does_not_exist")
-    assert r.status_code == 200
-    assert r.json()["trail"] == []
-    assert "no audit trail" in r.json()["text"]
+    assert r.status_code == 401
+
+
+def test_audit_endpoint_not_found_with_valid_key(policy_ctx):
+    import app.create_buyer as create_buyer_module
+
+    key = create_buyer_module.create_buyer("auditbuyer2", 10000.0)
+    with TestClient(app) as client:
+        r = client.get("/audit/does_not_exist", headers={"X-Buyer-Key": key})
+    assert r.status_code == 404

@@ -203,3 +203,22 @@ def test_pass_reason_includes_margin_pct(policy_context):
     assert verdict.passed
     assert "effective margin" in verdict.reason
 
+
+def test_counter_offer_rounds_unit_price_and_coerces_ints():
+    from app.schemas import CounterOffer
+
+    offer = CounterOffer.model_validate(
+        {
+            "unit_price": "10.050761421319798",
+            "min_volume": "6000",
+            "payment_terms_days": "30",
+            "delivery_days": 21.0,
+            "recurring": "true",
+        }
+    )
+    assert offer.unit_price == 10.05
+    assert offer.min_volume == 6000
+    assert offer.payment_terms_days == 30
+    assert offer.delivery_days == 21
+    assert offer.recurring is True
+

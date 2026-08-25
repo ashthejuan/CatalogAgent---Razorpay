@@ -134,10 +134,10 @@ backend/
 │   ├── schemas.py         # Pydantic: CounterOffer, QuoteRequest, OrderTerms, Verdict
 │   ├── db.py              # sqlite access; audit INSERT helpers
 │   ├── policy.py          # policy engine — pure, zero LLM, heavily tested
+│   ├── llm_client.py      # thin OpenAI-compatible wrapper (provider-swappable)
 │   ├── agents/
 │   │   ├── merchant.py    # merchant agent + tool definitions
-│   │   ├── buyer.py       # adversarial buyer simulator (isolated context)
-│   │   └── llm_client.py  # thin OpenAI-compatible wrapper (provider-swappable)
+│   │   └── buyer.py       # adversarial buyer simulator (isolated context)
 │   ├── invoicing.py       # reportlab renderer + save_invoice() wrapper
 │   ├── payments.py        # ~30 lines: create_order(terms) -> razorpay_order_id
 │   │                      # httpx POST /v1/orders, key:secret from .env (test mode).

@@ -102,14 +102,23 @@ def best_legal_counter(session: PolicySession) -> CounterOffer:
     Uses the largest tier's floor, grossed up for net-30 working-capital cost
     so the fallback itself passes the composite check. Delivery at the standard
     max lead time (no rush), one-off (no recurring concession).
+
+    The grossed price is rounded UP to the nearest paisa (with a 1-paisa buffer)
+    so it remains legal after CounterOffer's 2dp rounding — a bare
+    ``round(grossed, 2)`` can land on a float zero margin (e.g. 10.05 vs the
+    10.05 break-even) and fail the composite check.
     """
+    import math
+
     product = db.get_product(session.product_id)
     if product is None:
         raise ValueError(f"unknown product_id: {session.product_id}")
     tier = max(product.volume_tiers, key=lambda t: t.min_qty)
     grossed_unit_price = tier.floor_price / (1 - 30 * TERMS_COST_PER_DAY)
+    # ceil to 2dp + 1 paisa buffer guarantees a strictly positive margin
+    unit_price = (math.ceil(grossed_unit_price * 100) + 1) / 100
     return CounterOffer(
-        unit_price=grossed_unit_price,
+        unit_price=unit_price,
         min_volume=tier.min_qty,
         payment_terms_days=30,
         delivery_days=product.lead_time_max_days,

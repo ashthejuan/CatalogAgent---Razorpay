@@ -19,7 +19,7 @@ Every negotiation turn writes **two rows**: a proposal row (`verdict=NULL`) from
 
 ### Exposure
 - `GET /audit/{negotiation_id}` returns `{negotiation_id, trail (JSON), text (table)}`.
-- **Auth status**: endpoint is currently public. Prod intent (PRD §6.7) is buyer-key + ownership gating — deferred to Phase 4 where the `negotiations` table and ownership model land. Tracked, not forgotten.
+- **Auth (Phase 4.3):** `X-Buyer-Key` + negotiation ownership — same gate as `/negotiate`. Missing/invalid key → 401; foreign negotiation → 403.
 
 ## Policy engine hardening (Phase 2 follow-up)
 

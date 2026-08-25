@@ -115,24 +115,27 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 4.1 — LLM client wrapper
 
-- [ ] `llm_client.py`: thin OpenAI-compatible client; tool-schema support; retry on transient errors; provider swappable via env vars
+- [x] `llm_client.py`: thin OpenAI-compatible client; tool-schema support; retry on transient errors; provider swappable via env vars
 
 
 
 ### Step 4.2 — Agent loop
 
-- [ ] `agents/merchant.py`: system prompt (margins, floors context, five variables, buyer behavior so far); tools: `counter_offer(...)`, `accept_offer()`, `escalate_to_human(reason)`
-- [ ] Loop: build prompt → call LLM → parse tool call through `CounterOffer.model_validate()` (**Gate 2**) → malformed ⇒ audited FAIL `malformed_proposal` + re-prompt once, then escalate
-- [ ] Wire Gate 3 after every parsed proposal; PASS/FAIL both audited
-- [ ] On FAIL: return `best_legal_counter` fallback or escalation per severity
+- [x] `agents/merchant.py`: system prompt (margins, floors context, five variables, buyer behavior so far); tools: `counter_offer(...)` via `llm_client.counter_offer_tools()`; programmatic accept/escalate at turn limit
+- [x] Loop: build prompt → call LLM → parse tool call through `CounterOffer.model_validate()` (**Gate 2**) → malformed ⇒ audited FAIL `malformed_proposal` + re-prompt once, then escalate
+- [x] Wire Gate 3 after every parsed proposal; PASS/FAIL both audited
+- [x] On FAIL: return `best_legal_counter` fallback or escalation per severity
 
 
 
 ### Step 4.3 — Negotiation state endpoints
 
-- [ ] `POST /quote` (Gate 1 protected): creates OPEN negotiation
-- [ ] `POST /negotiate` (Gate 1 + ownership): runs ONE turn per architecture.md §3 lifecycle; explicit turn-per-call design
-- [ ] Route tests: bad key → 401; foreign negotiation → 403; malformed body → clean rejection
+- [x] `POST /quote` (Gate 1 protected): creates OPEN negotiation
+- [x] `POST /negotiate` (Gate 1 + ownership): runs ONE turn per architecture.md §3 lifecycle; explicit turn-per-call design
+- [x] Route tests: bad key → 401; foreign negotiation → 403; malformed body → clean rejection
+- [x] `/audit/{id}` ownership gate (buyer key + negotiation owner)
+- [x] `demo/run_demo.py` stub: hardcoded buyer lowball → FAIL → `best_legal_counter`; `tests/test_phase4.py`
+- [x] Architecture note: `context/architecture/phase-4.md`
 
 **Exit criteria:** scripted buyer (no LLM, hardcoded offers) can drive a multi-turn negotiation via HTTP; audit table renders correctly at each step; a hardcoded out-of-bounds offer is blocked gracefully.
 

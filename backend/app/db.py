@@ -4,11 +4,12 @@ import app.config  # noqa: F401 — load .env before os.environ reads
 
 import json
 import os
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.schemas import CatalogProduct, Product, VolumeTier
+from app.schemas import CatalogProduct, CounterOffer, Product, VolumeTier
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "catalogagent.db"
 DB_PATH = os.environ.get("CATALOGAGENT_DB_PATH", str(_DEFAULT_DB))
@@ -21,6 +22,18 @@ class Buyer:
     budget_cap: float
 
 
+@dataclass
+class Negotiation:
+    id: str
+    buyer_id: str
+    product_id: str
+    initial_volume: int | None
+    turn_count: int
+    history: list[dict]
+    last_valid_buyer_offer: CounterOffer | None
+    status: str
+
+
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -28,7 +41,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create Phase 1 tables. Later phases add negotiations, audit_log, orders."""
+    """Create application tables (products, buyers, negotiations, audit, orders)."""
     with _connect() as conn:
         conn.executescript(
             """
@@ -49,6 +62,17 @@ def init_db() -> None:
                 budget_cap REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS negotiations (
+                id TEXT PRIMARY KEY,
+                buyer_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                initial_volume INTEGER,
+                turn_count INTEGER NOT NULL DEFAULT 0,
+                history TEXT NOT NULL DEFAULT '[]',
+                last_valid_buyer_offer TEXT,
+                status TEXT NOT NULL DEFAULT 'OPEN'
+            );
+
             -- Phase 3: append-only audit trail. No UPDATE/DELETE is ever issued
             -- against this table anywhere in the codebase (enforced by review + tests).
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -63,7 +87,14 @@ def init_db() -> None:
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
-            -- Phase 4/6 will add: negotiations, orders.
+            -- Phase 6 fills rows; schema created here for Phase 4 negotiations.
+            CREATE TABLE IF NOT EXISTS orders (
+                id TEXT PRIMARY KEY,
+                negotiation_id TEXT NOT NULL,
+                terms TEXT NOT NULL,
+                razorpay_order_id TEXT,
+                invoice_path TEXT
+            );
             """
         )
 
@@ -172,6 +203,73 @@ def insert_buyer(buyer_id: str, key_hash: str, budget_cap: float) -> None:
         )
 
 
+def _row_to_negotiation(row: sqlite3.Row) -> Negotiation:
+    last_valid = row["last_valid_buyer_offer"]
+    return Negotiation(
+        id=row["id"],
+        buyer_id=row["buyer_id"],
+        product_id=row["product_id"],
+        initial_volume=row["initial_volume"],
+        turn_count=row["turn_count"],
+        history=json.loads(row["history"]),
+        last_valid_buyer_offer=(
+            CounterOffer.model_validate(json.loads(last_valid)) if last_valid else None
+        ),
+        status=row["status"],
+    )
+
+
+def create_negotiation(
+    buyer_id: str,
+    product_id: str,
+    initial_volume: int | None = None,
+) -> str:
+    negotiation_id = f"neg_{secrets.token_hex(8)}"
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO negotiations
+                (id, buyer_id, product_id, initial_volume, turn_count, history, status)
+            VALUES (?, ?, ?, ?, 0, '[]', 'OPEN')
+            """,
+            (negotiation_id, buyer_id, product_id, initial_volume),
+        )
+    return negotiation_id
+
+
+def get_negotiation(negotiation_id: str) -> Negotiation | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM negotiations WHERE id = ?", (negotiation_id,)
+        ).fetchone()
+    if row is None:
+        return None
+    return _row_to_negotiation(row)
+
+
+def save_negotiation(negotiation: Negotiation) -> None:
+    last_valid = (
+        json.dumps(negotiation.last_valid_buyer_offer.model_dump())
+        if negotiation.last_valid_buyer_offer
+        else None
+    )
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE negotiations
+            SET turn_count = ?, history = ?, last_valid_buyer_offer = ?, status = ?
+            WHERE id = ?
+            """,
+            (
+                negotiation.turn_count,
+                json.dumps(negotiation.history),
+                last_valid,
+                negotiation.status,
+                negotiation.id,
+            ),
+        )
+
+
 def _audit_row_to_dict(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
@@ -242,6 +340,15 @@ def format_audit_trail(negotiation_id: str) -> str:
             f"[{verdict}]{reason}"
         )
     return "\n".join(lines)
+
+
+def audit_excerpt(negotiation_id: str, max_lines: int = 8) -> str:
+    """Last few audit rows as a compact excerpt for negotiate responses."""
+    text = format_audit_trail(negotiation_id)
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    return "\n".join(lines[:2] + ["..."] + lines[-(max_lines - 3) :])
 
 
 def clear_products() -> None:
