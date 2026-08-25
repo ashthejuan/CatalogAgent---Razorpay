@@ -52,7 +52,7 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 ### Step 1.3 — `GET /catalog`
 
 - [x] Route returns full catalog as agent-readable JSON (products, tiers, stock, lead times)
-- [ ] README curl example works against running server
+- [X] README curl example works against running server
 - [x] Test: response validates against `Product` schema
 
 **Exit criteria:** `curl localhost:8000/catalog | jq` shows clean JSON; buyers table has hashed rows only (`SELECT * FROM buyers` proves no plaintext).
