@@ -96,29 +96,33 @@ def ui_root():
 
 
 @app.post("/ui/session")
-def ui_session():
+def ui_session(product_id: str | None = None):
     """Auto-provision a demo buyer key + negotiation so the UI needs zero setup.
 
-    Creates a throwaway buyer (demo_<rand>) with a generous budget, opens a
-    negotiation on the demo product, and returns the key + negotiation_id.
-    The UI injects the key as the X-Buyer-Key header for all later calls.
+    Pass ?product_id= to open the negotiation on a specific catalog item. The UI
+    opens a fresh negotiation per selected product so the policy engine grades
+    against *that* item's own volume-tier floors / stock / lead times, and the
+    merchant LLM counter-offers within its bounds. Defaults to the demo product.
     """
+    pid = product_id or "elec-conn-001"
+    if get_product(pid) is None:
+        raise HTTPException(status_code=404, detail="product not found")
     buyer_name = f"demo_{secrets.token_hex(4)}"
     key = create_buyer(buyer_name, budget_cap=1_000_000.0)
     negotiation_id = create_negotiation(
         buyer_id=buyer_name,
-        product_id="elec-conn-001",
+        product_id=pid,
         initial_volume=1000,
     )
     append_audit(
         negotiation_id, 0, "system", "negotiation_opened",
-        {"buyer_id": buyer_name, "product_id": "elec-conn-001", "initial_volume": 1000},
+        {"buyer_id": buyer_name, "product_id": pid, "initial_volume": 1000},
     )
     return {
         "buyer_key": key,
         "buyer_id": buyer_name,
         "negotiation_id": negotiation_id,
-        "product_id": "elec-conn-001",
+        "product_id": pid,
     }
 
 
@@ -183,6 +187,7 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
     move = _merchant_move_out(result)
 
     final_terms: CounterOffer | None = None
+    order_id: str | None = None
     if result.action == "accept":
         negotiation.status = "CLOSED_WON"
         final_terms = result.offer
@@ -204,7 +209,7 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
             insert_order(order_row)
             append_audit(
                 negotiation.id, turn, "payments", "order_created",
-                {"razorpay_order_id": razorpay_order["id"]},
+                {"razorpay_order_id": razorpay_order["id"], "order_id": order_row["id"]},
             )
             invoice_path = invoicing.save_invoice(order_row)
             update_order_invoice(order_row["id"], invoice_path)
@@ -212,6 +217,7 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
                 negotiation.id, turn, "payments", "invoice_generated",
                 {"invoice_path": invoice_path},
             )
+            order_id = order_row["id"]
         except Exception as e:
             append_audit(
                 negotiation.id, turn, "payments", "order_failed", {"error": str(e)}
@@ -237,6 +243,7 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
         merchant_move=move,
         audit_excerpt=audit_excerpt(negotiation.id),
         final_terms=final_terms,
+        order_id=order_id,
     )
 
 

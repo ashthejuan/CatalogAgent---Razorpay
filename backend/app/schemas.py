@@ -143,3 +143,4 @@ class NegotiateResponse(BaseModel):
     merchant_move: MerchantMoveOut
     audit_excerpt: str
     final_terms: CounterOffer | None = None
+    order_id: str | None = None

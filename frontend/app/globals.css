@@ -1,0 +1,432 @@
+/* =========================================================================
+   Scandinavian design system
+   Black/white foundation · sans-serif · generous spacing · restrained accent
+   Semantic color is used ONLY for guardrail/payment state, never decoration.
+   ========================================================================= */
+
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #6b7280;
+  --border: #e6e6e6;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+
+  --pass: #1a7f37;
+  --fail: #cf222e;
+  --warn: #9a6700;
+  --buyer: #1f6feb;
+  --merchant: #b07400;
+  --payments: #6e40c9;
+
+  --radius: 10px;
+  --maxw: 1120px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica,
+    Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.container {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+
+/* ---- Header -------------------------------------------------------------- */
+.header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 20px;
+  margin-bottom: 32px;
+}
+.title {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+.subtitle {
+  color: var(--muted);
+  margin: 0;
+  max-width: 640px;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.pill {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pill--open {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.pill--closed_won {
+  color: var(--pass);
+  border-color: var(--pass);
+}
+.pill--escalated {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* ---- Layout -------------------------------------------------------------- */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+.card__title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Form controls ------------------------------------------------------- */
+.field {
+  margin-top: 14px;
+}
+.field__label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 5px;
+}
+.input,
+.select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 14px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--fg);
+}
+.formgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.formgrid .field {
+  margin-top: 0;
+}
+
+.btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn--primary {
+  background: var(--fg);
+  color: #fff;
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---- Mode toggle --------------------------------------------------------- */
+.toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.toggle button {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.toggle button.active {
+  background: var(--fg);
+  color: #fff;
+}
+
+/* ---- Catalog price card (manual mode) ----------------------------------- */
+.pricecard {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.pricecard .mono {
+  font-variant-numeric: tabular-nums;
+}
+.pricecard strong {
+  font-size: 18px;
+}
+.tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.tier {
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Live contract ------------------------------------------------------- */
+.live {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.kv .muted {
+  color: var(--muted);
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.link {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid var(--fg);
+}
+.reason {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+.reason--error {
+  color: var(--fail);
+}
+.link--btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 14px;
+  border: 1px solid var(--fg);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.link--btn:hover:not(:disabled) {
+  background: var(--fg);
+  color: #fff;
+}
+.link--btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- Banner -------------------------------------------------------------- */
+.banner {
+  padding: 11px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin: 10px 0;
+}
+.banner--error {
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid var(--fail);
+  color: var(--fail);
+}
+.banner--win {
+  background: rgba(26, 127, 55, 0.08);
+  border: 1px solid var(--pass);
+  color: var(--pass);
+}
+
+/* ---- Audit trail --------------------------------------------------------- */
+.trail {
+  margin-top: 4px;
+}
+.turn {
+  margin: 0 0 18px;
+}
+.turn__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.turn__num {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.turn__line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.entry {
+  border-left: 2px solid var(--border);
+  padding: 8px 0 8px 14px;
+  margin: 6px 0;
+}
+.entry:first-child {
+  margin-top: 0;
+}
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.entry__action {
+  color: var(--muted);
+  font-size: 13px;
+}
+.offer {
+  margin-top: 6px;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 2px 7px;
+  margin-left: 4px;
+  letter-spacing: 0.02em;
+}
+.badge--pass {
+  color: var(--pass);
+  background: rgba(26, 127, 55, 0.1);
+}
+.badge--fail {
+  color: var(--fail);
+  background: rgba(207, 34, 46, 0.1);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--muted);
+}
+.status-dot--open {
+  background: var(--fg);
+}
+.status-dot--closed_won {
+  background: var(--pass);
+}
+.status-dot--escalated {
+  background: var(--warn);
+}
+
+/* ---- Spinner ------------------------------------------------------------- */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+.btn--ghost .spinner {
+  border-color: rgba(17, 17, 17, 0.3);
+  border-top-color: var(--fg);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12.5px;
+}
