@@ -130,7 +130,7 @@ def test_fuzz_no_illegal_pass(policy_context):
             if offer.delivery_days < product.lead_time_max_days:
                 margin -= (product.lead_time_max_days - offer.delivery_days) * 0.01 * offer.unit_price
             if offer.recurring:
-                margin -= 0.02 * offer.unit_price
+                margin += 0.02 * offer.unit_price
             assert margin >= 0
 
 
@@ -163,12 +163,34 @@ def test_recurring_is_considered(policy_context):
     db, policy = policy_context
     product = db.get_product("elec-conn-001")
     session = policy.PolicySession(product.id, 0)
-    base = _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_max_days, recurring=False)
-    recurring = _offer(unit_price=product.volume_tiers[0].floor_price, payment_terms_days=0, delivery_days=product.lead_time_max_days, recurring=True)
-    assert policy.check(base, session).passed
-    # recurring version extracts an extra 2% margin concession -> may tip negative
-    assert not policy.check(recurring, session).passed
-    assert "recurring" in policy.check(recurring, session).reason
+    # Tight one-off: price at floor, standard terms, delivery 1 day inside the
+    # standard max lead (minor rush nick). Margin goes slightly negative -> FAIL.
+    one_off = _offer(
+        unit_price=product.volume_tiers[0].floor_price,
+        payment_terms_days=0,
+        delivery_days=product.lead_time_max_days - 1,
+        recurring=False,
+    )
+    assert not policy.check(one_off, session).passed
+    # Same package but recurring=True earns a margin concession -> now PASSES.
+    recurring = _offer(
+        unit_price=product.volume_tiers[0].floor_price,
+        payment_terms_days=0,
+        delivery_days=product.lead_time_max_days - 1,
+        recurring=True,
+    )
+    verdict = policy.check(recurring, session)
+    assert verdict.passed
+    # recurring leverage is reflected in the higher effective margin vs one-off
+    assert "effective margin" in verdict.reason
+    # And it must NOT pass when recurring is the only lever with a deep rush.
+    deep_rush = _offer(
+        unit_price=product.volume_tiers[0].floor_price,
+        payment_terms_days=0,
+        delivery_days=product.lead_time_min_days,
+        recurring=True,
+    )
+    assert not policy.check(deep_rush, session).passed
 
 
 def test_pass_reason_includes_margin_pct(policy_context):

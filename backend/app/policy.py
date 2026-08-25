@@ -13,7 +13,7 @@ TERMS_COST_PER_DAY = 0.0005
 # the merchant, not the hard minimum gate.
 RUSH_COST_PER_DAY = 0.01
 # Recurring-commitment concession: recurring business justifies a margin
-# give-up vs one-off.
+# give-up vs one-off (predictable revenue is worth a price concession).
 RECURRING_CONCESSION = 0.02
 MAX_PAYMENT_TERMS_DAYS = 45
 
@@ -86,7 +86,9 @@ def check(offer: CounterOffer, session: PolicySession) -> Verdict:
     if offer.delivery_days < product.lead_time_max_days:
         margin -= (product.lead_time_max_days - offer.delivery_days) * RUSH_COST_PER_DAY * offer.unit_price
     if offer.recurring:
-        margin -= RECURRING_CONCESSION * offer.unit_price
+        # Recurring commitment is value to the merchant (predictable revenue),
+        # so it earns a margin CONCESSION — it HELPS a tight package pass.
+        margin += RECURRING_CONCESSION * offer.unit_price
     if margin < 0:
         return Verdict(passed=False, reason=f"composite margin negative: {margin:.2f} after terms/rush/recurring cost")
 
