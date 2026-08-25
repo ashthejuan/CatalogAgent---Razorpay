@@ -125,26 +125,29 @@ Isolation rule: every infrastructure touchpoint sits behind a small interface (`
 
 ## 7. Module layout
 
+Code lives under `backend/` (Phase 0.1 scaffold). See `context/architecture/phase-0.1-scaffold.md`.
+
 ```
-app/
-├── main.py            # FastAPI routes (thin)
-├── schemas.py         # Pydantic: CounterOffer, QuoteRequest, OrderTerms, Verdict
-├── db.py              # sqlite access; audit INSERT helpers
-├── policy.py          # policy engine — pure, zero LLM, heavily tested
-├── agents/
-│   ├── merchant.py    # merchant agent + tool definitions
-│   ├── buyer.py       # adversarial buyer simulator (isolated context)
-│   └── llm_client.py  # thin OpenAI-compatible wrapper (provider-swappable)
-├── invoicing.py       # reportlab renderer + save_invoice() wrapper
-├── payments.py        # ~30 lines: create_order(terms) -> razorpay_order_id
-│                      # httpx POST /v1/orders, key:secret from .env (test mode).
-│                      # Callable ONLY after policy-engine PASS — gating boundary.
-├── create_buyer.py    # CLI: python -m app.create_buyer acme --budget 50000
-tests/
-└── test_policy.py     # built BEFORE agents are wired (build-order rule)
-invoices/              # generated PDFs
-demo/
-└── run_demo.py        # E2E harness; prints audit table (video source)
+backend/
+├── app/
+│   ├── main.py            # FastAPI routes (thin); Phase 0.1: GET /health only
+│   ├── schemas.py         # Pydantic: CounterOffer, QuoteRequest, OrderTerms, Verdict
+│   ├── db.py              # sqlite access; audit INSERT helpers
+│   ├── policy.py          # policy engine — pure, zero LLM, heavily tested
+│   ├── agents/
+│   │   ├── merchant.py    # merchant agent + tool definitions
+│   │   ├── buyer.py       # adversarial buyer simulator (isolated context)
+│   │   └── llm_client.py  # thin OpenAI-compatible wrapper (provider-swappable)
+│   ├── invoicing.py       # reportlab renderer + save_invoice() wrapper
+│   ├── payments.py        # ~30 lines: create_order(terms) -> razorpay_order_id
+│   │                      # httpx POST /v1/orders, key:secret from .env (test mode).
+│   │                      # Callable ONLY after policy-engine PASS — gating boundary.
+│   └── create_buyer.py    # CLI: python -m app.create_buyer acme --budget 50000
+├── tests/
+│   └── test_smoke.py      # Phase 0.1; test_policy.py comes before agents (build-order)
+├── invoices/              # generated PDFs
+└── demo/
+    └── run_demo.py        # E2E harness; prints audit table (video source) — later phase
 ```
 
 ## 8. Deliberate non-decisions
