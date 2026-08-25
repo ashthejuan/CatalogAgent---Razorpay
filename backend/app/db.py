@@ -1,12 +1,14 @@
 """SQLite access layer."""
 
+import app.config  # noqa: F401 — load .env before os.environ reads
+
 import json
 import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.schemas import Product, VolumeTier
+from app.schemas import CatalogProduct, Product, VolumeTier
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "catalogagent.db"
 DB_PATH = os.environ.get("CATALOGAGENT_DB_PATH", str(_DEFAULT_DB))
@@ -111,6 +113,11 @@ def get_catalog() -> list[Product]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM products ORDER BY category, id").fetchall()
     return [_row_to_product(row) for row in rows]
+
+
+def get_public_catalog() -> list[CatalogProduct]:
+    """Public catalog view — list prices only; floor_price stays server-side."""
+    return [CatalogProduct.from_product(p) for p in get_catalog()]
 
 
 def get_buyer_by_hash(key_hash: str) -> Buyer | None:

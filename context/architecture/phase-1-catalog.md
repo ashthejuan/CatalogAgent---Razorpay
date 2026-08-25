@@ -15,7 +15,8 @@ Implemented: schemas, SQLite catalog/buyers layer, seed script, buyer-key CLI, p
 
 ## Security
 
-- `/catalog` is **public by design** (agent discovery).
+- `/catalog` is **public by design** (agent discovery). Response uses `CatalogProduct` / `CatalogTier` — **no `floor_price`** (internal guardrail; policy engine only).
+- `app/config.py` loads gitignored `.env` via `python-dotenv` at import time.
 - Buyer keys: `bk_<name>_<random8>` printed once; DB stores SHA-256 (or HMAC-SHA256 with `KEY_PEPPER`) only.
 - Write endpoints remain unprotected until Phase 4 (`require_buyer`).
 

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.schemas import CounterOffer, Product, QuoteRequest
+from app.schemas import CatalogProduct, CounterOffer, QuoteRequest
 
 
 def _reload_db_stack():
@@ -62,10 +62,23 @@ def test_seed_and_catalog(client, temp_db):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
 
-    products = [Product.model_validate(p) for p in r.json()]
+    products = [CatalogProduct.model_validate(p) for p in r.json()]
     assert len(products) >= 10
     for product in products:
         assert len(product.volume_tiers) >= 3
+
+
+def test_catalog_hides_floor_price(client, temp_db):
+    _, _, seed_module, _ = temp_db
+    seed_module.seed_products()
+
+    r = client.get("/catalog")
+    assert r.status_code == 200
+    body = r.text
+    assert "floor_price" not in body
+    for product in r.json():
+        for tier in product["volume_tiers"]:
+            assert set(tier.keys()) == {"min_qty", "unit_price"}
 
 
 def test_create_buyer_hashes(temp_db):
