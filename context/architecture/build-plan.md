@@ -20,9 +20,9 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 0.2 — External accounts (do now, they block later steps)
 
-- [X] Razorpay account → grab **test-mode** key_id/key_secret from dashboard
-- [X] LLM provider decided + API key in `.env` (structured output/tool-calling required)
-- [X] Verify both with throwaway scripts: one curl to `/v1/orders` test endpoint, one completion call
+- [x] Razorpay account → grab **test-mode** key_id/key_secret from dashboard
+- [x] LLM provider decided + API key in `.env` (structured output/tool-calling required)
+- [x] Verify both with throwaway scripts: one curl to `/v1/orders` test endpoint, one completion call
 
 **Exit criteria:** `uvicorn app.main:app` serves an empty `/health`; both external creds verified.
 
@@ -51,11 +51,11 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 1.3 — `GET /catalog`
 
-- [x] Route returns full catalog as agent-readable JSON (products, tiers, stock, lead times)
-- [X] README curl example works against running server
-- [x] Test: response validates against `Product` schema
+- [x] Route returns **catalog-safe** JSON — `CatalogProduct` view strips `floor_price` (internal negotiation floor) from public response
+- [x] README curl example works against running server
+- [x] Test: response validates against `CatalogProduct`; `test_catalog_hides_floor_price` asserts no `floor_price` leaks
 
-**Exit criteria:** `curl localhost:8000/catalog | jq` shows clean JSON; buyers table has hashed rows only (`SELECT * FROM buyers` proves no plaintext).
+**Exit criteria:** `curl localhost:8000/catalog | jq` shows clean JSON with tiers exposing only `min_qty`/`unit_price`; buyers table has hashed rows only.
 
 ---
 
@@ -67,23 +67,25 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 2.1 — Core checks
 
-- [ ] `policy.py`: `check(offer, session) -> Verdict`
-- [ ] Per-field bounds: price ≥ tier floor (tier resolved from qty), payment_terms_days ≤ max, delivery_days ≥ lead-time min, qty ≤ stock, turn < max_turns
-- [ ] Composite margin: effective margin = unit_price − COGS_floor − payment-terms cost − rush-delivery cost; FAIL below threshold
-- [ ] Every FAIL carries a structured Python reason string
-- [ ] `best_legal_counter(session)` helper (used by graceful fallback later)
+- [x] `policy.py`: `check(offer, session) -> Verdict`
+- [x] Per-field bounds: price ≥ tier floor (tier resolved from qty), payment_terms_days ≤ max, delivery_days ≥ lead-time min, qty ≤ stock, turn < max_turns
+- [x] Composite margin: effective margin = unit_price − COGS_floor − payment-terms cost − rush-delivery cost; FAIL below threshold
+- [x] Every FAIL carries a structured Python reason string
+- [x] `best_legal_counter(session)` helper (used by graceful fallback later)
 
 
 
 ### Step 2.2 — Test suite (the moat's proof)
 
-- [ ] PASS case per tier boundary (exact floor passes)
-- [ ] FAIL cases: each field violated individually; reason strings asserted verbatim
-- [ ] Composite-margin trap: legal price + net-45 terms → FAIL (this test is your pitch slide)
-- [ ] Turn-limit exhaustion
-- [ ] Property test: fuzz 500 random offers, assert no illegal offer ever gets PASS
-
-**Exit criteria:** `pytest` green; policy.py readable top-to-bottom by a non-author. Do not proceed until this is true.
+- [x] PASS case at exact floor (standard-lead delivery isolates the price boundary)
+- [x] FAIL cases: each field violated individually; reason keyword asserted
+- [x] Composite-margin trap: floor price + net-45 terms → FAIL
+- [x] **Sub-MOQ guard**: volume below lowest tier MOQ → FAIL (not graded against top tier)
+- [x] **Rush-delivery margin**: delivery beating standard *max* lead erodes margin
+- [x] **Recurring lever**: package that FAILS one-off PASSES when `recurring=True` (correct sign)
+- [x] Turn-limit exhaustion
+- [x] Property test: fuzz 500 random offers, assert no illegal offer ever gets PASS
+**Exit criteria:** `pytest` green (26 tests); policy.py readable top-to-bottom by a non-author. Do not proceed until this is true.
 
 ---
 
@@ -95,12 +97,13 @@ Rule of thumb per step: **done = runs + tested + committed**, not "code exists."
 
 ### Step 3.1 — Logger + exposure
 
-- [ ] `audit.log()` helper: single INSERT path; no UPDATE/DELETE functions exist anywhere in the codebase
-- [ ] Log convention: proposal row (actor=merchant_llm/buyer_agent) + verdict row (actor=policy_engine, verdict, reason) for every check
-- [ ] `GET /audit/{negotiation_id}` returns ordered trail
-- [ ] Pretty-printer function (shared by endpoint and demo harness): renders trail as aligned table
+- [x] `append_audit()` helper (plan's `audit.log()`): single INSERT path; no UPDATE/DELETE on `audit_log` anywhere in codebase (asserted by test)
+- [x] Log convention: proposal row (actor=`merchant_llm`/`buyer_agent`) + verdict row (actor=`policy_engine`, verdict, reason) for every check
+- [x] `GET /audit/{negotiation_id}` returns ordered trail (`trail` JSON + `text` table); HTTP test covers both present and empty
+- [x] `format_audit_trail()`: aligned table; multi-turn snapshot test asserts side-by-side PASS/FAIL rows
+- [x] Architecture note: `context/architecture/phase-3-audit.md`
 
-**Exit criteria:** hand-crafted negotiation session produces a correct readable table via the printer.
+**Exit criteria:** hand-crafted negotiation session produces a correct readable table via the printer; `/audit/{id}` returns it over HTTP. (Ownership/auth gating of `/audit` deferred to Phase 4 with the `negotiations` table.)
 
 ---
 
