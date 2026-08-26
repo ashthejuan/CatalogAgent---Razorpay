@@ -86,13 +86,13 @@ flowchart LR
     Razorpay --- Security
 ```
 
+
+
 Three gates: identity (hashed buyer API key, constant-time compare), schema
 (Pydantic validates the LLM's structured tool call — malformed calls are
 audited and rejected), and action permission (the deterministic policy engine
 enforces merchant bounds). The money action is reachable only after Gate 3
 passes and the merchant accepts. No agent module imports `payments`.
-
-> Hand-drawn variant: [context/architecture/architecture.excalidraw](context/architecture/architecture.excalidraw).
 
 
 
@@ -152,6 +152,10 @@ flowchart TD
     C -->|NO| R2["REJECT<br/><br/>Policy violation"]
     C -->|YES| P["PASS<br/><br/>Offer is legally<br/>within merchant bounds"]
 ```
+
+
+
+
 
 ### Constants
 
@@ -218,8 +222,6 @@ Net: at the floor price, the buyer must either pay immediately (net-0) or accept
 a slightly higher unit price to absorb the working-capital cost of net-30.
 
 ## Security
-
-Detailed model in [context/security/security.md](context/security/security.md). Summary:
 
 - LLM proposes, code disposes. The guardrail is a control-flow property, not
 a convention the LLM is "supposed" to respect.
