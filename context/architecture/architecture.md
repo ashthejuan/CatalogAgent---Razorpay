@@ -6,7 +6,7 @@ Companion to `CatalogAgent-PRD.md` (same repo, `razorpay/`). This document is th
 
 ## 1. System overview
 
-Single Python process (FastAPI + uvicorn). The merchant IS the server; buyer agents are external HTTP clients. No message queues, no Docker, no frontend framework.
+Single Python process (FastAPI + uvicorn). The merchant IS the server; buyer agents are external HTTP clients. No message queues, no Docker, no LangChain. Optional Next.js demo UI under `frontend/` (proxies to the API); a minimal static page is also served at `GET /`.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -138,6 +138,7 @@ backend/
 │   ├── agents/
 │   │   ├── merchant.py    # merchant agent + tool definitions
 │   │   └── buyer.py       # adversarial buyer simulator (isolated context)
+│   │                      # (llm_client lives only at app/llm_client.py)
 │   ├── invoicing.py       # reportlab renderer + save_invoice() wrapper
 │   ├── payments.py        # ~30 lines: create_order(terms) -> razorpay_order_id
 │   │                      # httpx POST /v1/orders, key:secret from .env (test mode).
@@ -155,4 +156,4 @@ backend/
 - **No LangChain/LangGraph** — a while-loop with tools is sufficient and debuggable.
 - **No vector DB/RAG** — nothing requires retrieval.
 - **No login flows/tokens** — see PRD auth decision record; static hashed keys are proportionate.
-- **No frontend** — CLI + JSON endpoints; judges read code.
+- **No framework agent stack** — CLI/JSON + thin demo UI; judges read the policy/audit path, not a chatbot chrome.
