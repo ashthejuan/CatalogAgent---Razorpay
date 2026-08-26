@@ -140,7 +140,7 @@ export default function Home() {
             : null;
           setOrder({
             order_id: res.order_id,
-            razorpay_order_id: res.merchant_move.reason || "",
+            razorpay_order_id: "",
             amount_paise: amount,
           });
         }

@@ -59,7 +59,13 @@ export default function LiveContract({
         </div>
         <div className="kv">
           <span className="muted">Order ID</span>
-          <span className="mono">{order.razorpay_order_id}</span>
+          <span className="mono">{order.order_id}</span>
+          {order.razorpay_order_id && (
+            <>
+              <span className="muted">Razorpay order</span>
+              <span className="mono">{order.razorpay_order_id}</span>
+            </>
+          )}
           {order.amount_paise != null && (
             <>
               <span className="muted">Amount</span>
