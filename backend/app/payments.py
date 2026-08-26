@@ -13,7 +13,7 @@ def _post_order(payload: dict) -> dict:
         "https://api.razorpay.com/v1/orders",
         auth=(os.environ.get("RAZORPAY_KEY_ID", ""), os.environ.get("RAZORPAY_KEY_SECRET", "")),
         json=payload,
-        timeout=10.0,
+        timeout=20.0,
     )
     if response.is_error:
         raise RuntimeError(f"Razorpay order failed ({response.status_code}): {response.text}")

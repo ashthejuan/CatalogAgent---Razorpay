@@ -2,17 +2,16 @@ import type { AuditEntry, CounterOffer } from "@/lib/types";
 import { formatOffer } from "@/lib/format";
 
 function offerFromEntry(e: AuditEntry): CounterOffer | null {
-  if (
-    e.actor === "buyer_agent" &&
-    e.action === "counter_offer" &&
-    e.payload &&
-    typeof e.payload === "object" &&
-    "unit_price" in e.payload
-  ) {
-    return e.payload as unknown as CounterOffer;
+  const p = e.payload;
+  if (!p || typeof p !== "object") return null;
+  // Nested under .offer (history-shaped payloads)
+  const nested = p.offer;
+  if (nested && typeof nested === "object" && "unit_price" in nested) {
+    return nested as unknown as CounterOffer;
   }
-  if (e.actor === "merchant_llm" && e.payload && e.payload.offer) {
-    return e.payload.offer as unknown as CounterOffer;
+  // Backend audits dump CounterOffer at the top level (buyer, merchant, policy)
+  if ("unit_price" in p && "min_volume" in p) {
+    return p as unknown as CounterOffer;
   }
   return null;
 }
@@ -20,6 +19,7 @@ function offerFromEntry(e: AuditEntry): CounterOffer | null {
 function reasonFromEntry(e: AuditEntry): string | null {
   if (e.reason) return e.reason;
   if (e.payload && e.payload.reason) return e.payload.reason as string;
+  if (e.payload && e.payload.error) return String(e.payload.error);
   return null;
 }
 

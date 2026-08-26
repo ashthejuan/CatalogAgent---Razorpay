@@ -88,9 +88,14 @@ def test_pass_proposal_audits_proposal_and_verdict(ctx):
     assert result.offer == offer
     assert result.verdict is not None and result.verdict.passed
     trail = ctx.get_audit_trail("neg_pass")
+    # Buyer FAIL on turn 1; merchant proposes on turn 2. Legal counters are not
+    # PASS-audited — deal stays OPEN until the buyer sends a new offer.
     assert len(trail) == 2
-    assert trail[0]["actor"] == "merchant_llm" and trail[0]["verdict"] is None
-    assert trail[1]["actor"] == "policy_engine" and trail[1]["verdict"] == "PASS"
+    assert trail[0]["actor"] == "policy_engine" and trail[0]["verdict"] == "FAIL"
+    assert trail[0]["turn"] == 1
+    assert trail[1]["actor"] == "merchant_llm" and trail[1]["verdict"] is None
+    assert trail[1]["turn"] == 2
+    assert not any(e["actor"] == "policy_engine" and e["verdict"] == "PASS" for e in trail)
 
 
 def test_margin_fail_returns_fallback_and_audits_fail_plus_fallback(ctx):
@@ -116,12 +121,14 @@ def test_margin_fail_returns_fallback_and_audits_fail_plus_fallback(ctx):
 
     assert result.action == "counter_offer"
     assert result.verdict is not None and not result.verdict.passed
-    assert result.reason is not None
     assert result.offer == best_legal_counter(PolicySession(product.id, 0))
     trail = ctx.get_audit_trail("neg_margin")
-    assert len(trail) == 3
-    assert trail[1]["verdict"] == "FAIL"
-    assert trail[2]["actor"] == "merchant_llm" and trail[2]["action"] == "counter_offer"
+    # turn 1: buyer FAIL; turn 2: merchant fallback only (no duplicate FAIL)
+    assert len(trail) == 2
+    assert trail[0]["verdict"] == "FAIL" and trail[0]["turn"] == 1
+    assert trail[1]["actor"] == "merchant_llm" and trail[1]["action"] == "counter_offer"
+    assert trail[1]["turn"] == 2
+    assert sum(1 for e in trail if e["actor"] == "policy_engine") == 1
 
 
 def test_structural_sub_moq_escalates(ctx):
@@ -173,8 +180,13 @@ def test_malformed_reprompt_then_success(ctx):
     assert result.action == "counter_offer"
     assert llm.calls == 2
     trail = ctx.get_audit_trail("neg_repair")
-    assert trail[0]["action"] == "malformed_proposal" and trail[0]["verdict"] == "FAIL"
-    assert trail[-1]["verdict"] == "PASS"
+    assert trail[0]["actor"] == "policy_engine" and trail[0]["verdict"] == "FAIL"
+    assert trail[0]["turn"] == 1
+    assert trail[1]["action"] == "malformed_proposal" and trail[1]["verdict"] == "FAIL"
+    assert trail[1]["turn"] == 2
+    assert trail[-1]["actor"] == "merchant_llm" and trail[-1]["action"] == "counter_offer"
+    assert trail[-1]["turn"] == 2
+    assert not any(e["verdict"] == "PASS" for e in trail)
 
 
 def test_malformed_twice_escalates(ctx):
@@ -191,9 +203,12 @@ def test_malformed_twice_escalates(ctx):
 
     assert result.action == "escalate"
     trail = ctx.get_audit_trail("neg_bad")
-    assert trail[0]["action"] == "malformed_proposal"
-    assert trail[1]["action"] == "malformed_proposal"
+    assert trail[0]["actor"] == "policy_engine" and trail[0]["verdict"] == "FAIL"
+    assert trail[0]["turn"] == 1
+    assert trail[1]["action"] == "malformed_proposal" and trail[1]["turn"] == 2
+    assert trail[2]["action"] == "malformed_proposal" and trail[2]["turn"] == 2
     assert trail[-1]["action"] == "escalate_to_human"
+    assert trail[-1]["turn"] == 2
 
 
 def test_max_turns_accepts_last_valid_buyer_offer(ctx):
@@ -215,6 +230,8 @@ def test_max_turns_accepts_last_valid_buyer_offer(ctx):
     assert result.offer == valid
     trail = ctx.get_audit_trail("neg_accept")
     assert trail[0]["action"] == "accept"
+    assert trail[0]["verdict"] == "PASS"
+    assert trail[0]["turn"] == 5  # merchant half = turn + 1 when turn=4
 
 
 def test_max_turns_without_valid_offer_escalates(ctx):

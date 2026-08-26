@@ -163,17 +163,20 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
     if negotiation.status != "OPEN":
         raise HTTPException(status_code=409, detail=f"negotiation is {negotiation.status}")
 
-    turn = negotiation.turn_count + 1
+    # PRD §6.8: buyer half on odd turns, merchant half on the following even turn.
+    # turn_count = completed buyer-offer cycles (policy / max_turns); audit turns = 2n+1 / 2n+2.
+    buyer_turn = negotiation.turn_count * 2 + 1
+    merchant_turn = buyer_turn + 1
     append_audit(
         negotiation.id,
-        turn,
+        buyer_turn,
         "buyer_agent",
         "counter_offer",
         body.buyer_offer.model_dump(),
     )
     negotiation.history.append(
         {
-            "turn": turn,
+            "turn": buyer_turn,
             "actor": "buyer_agent",
             "offer": body.buyer_offer.model_dump(),
         }
@@ -191,6 +194,12 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
     if result.action == "accept":
         negotiation.status = "CLOSED_WON"
         final_terms = result.offer
+        # Legal buyer accept is audited on the buyer turn; max-turns accept on merchant turn.
+        accept_turn = (
+            buyer_turn
+            if result.verdict is not None and result.verdict.passed
+            else merchant_turn
+        )
         try:
             payments = importlib.import_module("app.payments")
             order_terms = OrderTerms(
@@ -208,26 +217,26 @@ def negotiate(body: NegotiateBody, buyer: Annotated[Buyer, Depends(require_buyer
             }
             insert_order(order_row)
             append_audit(
-                negotiation.id, turn, "payments", "order_created",
+                negotiation.id, accept_turn, "payments", "order_created",
                 {"razorpay_order_id": razorpay_order["id"], "order_id": order_row["id"]},
             )
             invoice_path = invoicing.save_invoice(order_row)
             update_order_invoice(order_row["id"], invoice_path)
             append_audit(
-                negotiation.id, turn, "payments", "invoice_generated",
+                negotiation.id, accept_turn, "payments", "invoice_generated",
                 {"invoice_path": invoice_path},
             )
             order_id = order_row["id"]
         except Exception as e:
             append_audit(
-                negotiation.id, turn, "payments", "order_failed", {"error": str(e)}
+                negotiation.id, accept_turn, "payments", "order_failed", {"error": str(e)}
             )
     elif result.action == "escalate":
         negotiation.status = "ESCALATED"
     elif result.offer is not None:
         negotiation.history.append(
             {
-                "turn": turn,
+                "turn": merchant_turn,
                 "actor": "merchant_llm",
                 "action": result.action,
                 "offer": result.offer.model_dump(),

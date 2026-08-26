@@ -248,14 +248,20 @@ def test_merchant_accepts_valid_offer(client, acme, stack):
     assert body["status"] == "CLOSED_WON"
     assert body["merchant_move"]["action"] == "accept"
     assert body["final_terms"] == offer.model_dump()
+    trail = db.get_audit_trail(negotiation_id)
+    accept = next(e for e in trail if e["action"] == "accept")
+    assert accept["actor"] == "merchant_llm" and accept["verdict"] == "PASS"
 
 
-def test_audit_two_rows_per_turn(client, acme, stack, monkeypatch):
+def test_audit_alternating_buyer_merchant_turns(client, acme, stack, monkeypatch):
+    """Buyer FAIL on turn 1; merchant counter on turn 2 (no PASS audit); next buyer = turn 3."""
     db, _, _, merchant_module = stack
     product = db.get_product("elec-conn-001")
     good = _passing_offer(product)
-    # Force LLM path: buyer lowballs; merchant proposes a legal package.
-    fake = FakeLLM([{"name": "counter_offer", "arguments": good.model_dump()}])
+    fake = FakeLLM([
+        {"name": "counter_offer", "arguments": good.model_dump()},
+        {"name": "counter_offer", "arguments": good.model_dump()},
+    ])
     monkeypatch.setattr(merchant_module, "LLMClient", fake)
 
     negotiation_id = client.post(
@@ -281,13 +287,30 @@ def test_audit_two_rows_per_turn(client, acme, stack, monkeypatch):
     )
 
     trail = db.get_audit_trail(negotiation_id)
-    turn_rows = [e for e in trail if e["turn"] == 1]
-    actors = [e["actor"] for e in turn_rows]
-    assert "buyer_agent" in actors
-    assert "merchant_llm" in actors
-    assert "policy_engine" in actors
-    assert any(e["actor"] == "merchant_llm" and e["verdict"] is None for e in turn_rows)
-    assert any(e["actor"] == "policy_engine" and e["verdict"] in ("PASS", "FAIL") for e in turn_rows)
+    turn1 = [e for e in trail if e["turn"] == 1]
+    turn2 = [e for e in trail if e["turn"] == 2]
+    assert [e["actor"] for e in turn1] == ["buyer_agent", "policy_engine"]
+    assert turn1[1]["verdict"] == "FAIL"
+    assert [e["actor"] for e in turn2] == ["merchant_llm"]
+    assert turn2[0]["action"] == "counter_offer"
+    assert not any(e["verdict"] == "PASS" for e in trail)
+
+    client.post(
+        "/negotiate",
+        json={
+            "negotiation_id": negotiation_id,
+            "buyer_offer": {
+                "unit_price": round(floor * 0.8, 2),
+                "min_volume": 1000,
+                "payment_terms_days": 30,
+                "delivery_days": 14,
+                "recurring": False,
+            },
+        },
+        headers=_headers(acme),
+    )
+    trail = db.get_audit_trail(negotiation_id)
+    assert any(e["turn"] == 3 and e["actor"] == "buyer_agent" for e in trail)
 
 
 def test_no_payments_import():

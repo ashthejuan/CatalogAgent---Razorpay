@@ -4,6 +4,11 @@
 const BACKEND = process.env.BACKEND_URL || "http://localhost:8000";
 
 const nextConfig = {
+  // Free OpenRouter models often exceed Next's default 30s rewrite proxy
+  // timeout (socket hang up → browser 500 while FastAPI still returns 200).
+  experimental: {
+    proxyTimeout: 120_000,
+  },
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${BACKEND}/:path*` },

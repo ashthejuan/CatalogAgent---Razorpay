@@ -1,4 +1,11 @@
-"""Thin OpenAI-compatible chat client — transport only, no negotiation logic."""
+"""Thin OpenAI-compatible chat client — transport only, no negotiation logic.
+
+Provider-swappable via env:
+  LLM_MODE = "openai" (default) | "nvcf"
+  OPENAI mode:  POST {LLM_BASE_URL}/chat/completions   (OpenAI-compatible)
+  NVCF mode:    POST {LLM_BASE_URL}                      (NVCF function-exec,
+                LLM_MODEL holds the NVCF function id; async poll for result)
+"""
 
 from __future__ import annotations
 
@@ -14,6 +21,8 @@ from app.schemas import CounterOffer
 
 _TIMEOUT_S = 120.0
 _BACKOFF_S = 0.5
+_NVCF_POLL_S = 1.0
+_NVCF_POLL_MAX = 60  # up to ~60s for cold-start GPU functions
 
 
 def counter_offer_tools() -> list[dict[str, Any]]:
@@ -39,9 +48,10 @@ def counter_offer_tools() -> list[dict[str, Any]]:
 
 
 class LLMClient:
-    """Provider-swappable via ``LLM_BASE_URL`` / ``LLM_API_KEY`` / ``LLM_MODEL`` only."""
+    """Provider-swappable via LLM_MODE / LLM_BASE_URL / LLM_API_KEY / LLM_MODEL."""
 
     def __init__(self) -> None:
+        self.mode = os.environ.get("LLM_MODE", "openai").strip().lower()
         self.base_url = os.environ["LLM_BASE_URL"].rstrip("/")
         self.api_key = os.environ["LLM_API_KEY"]
         self.model = os.environ["LLM_MODEL"]
@@ -58,11 +68,11 @@ class LLMClient:
             "messages": [{"role": "system", "content": system_prompt}, *messages],
             "tools": tools,
         }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        data = self._post(f"{self.base_url}/chat/completions", headers, payload)
+        if self.mode == "nvcf":
+            data = self._nvcf_invoke(self.base_url, payload)
+        else:
+            data = self._post(f"{self.base_url}/chat/completions", payload)
+
         message = data["choices"][0]["message"]
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
@@ -74,13 +84,22 @@ class LLMClient:
         arguments = _coerce_tool_args(arguments)
         return {"name": fn["name"], "arguments": arguments}
 
-    def _post(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    # --- providers ---------------------------------------------------------
+
+    def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         """POST once; one retry on timeout / 5xx. 4xx fails immediately."""
         last_timeout: httpx.TimeoutException | None = None
         for attempt in range(2):
             try:
                 with httpx.Client(timeout=_TIMEOUT_S) as client:
-                    resp = client.post(url, headers=headers, json=payload)
+                    resp = client.post(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
             except httpx.TimeoutException as exc:
                 last_timeout = exc
                 if attempt == 0:
@@ -103,6 +122,49 @@ class LLMClient:
             raise last_timeout
         raise RuntimeError("LLM POST retry exhausted")
 
+    def _nvcf_invoke(self, invoke_url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """NVCF function-exec: async submit + poll for the chat/completions result.
+
+        ``LLM_MODEL`` is the NVCF function id. The response mirrors the
+        OpenAI ``choices[0].message`` shape once the invocation completes.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        # 1) submit
+        submit = self._raw_post(invoke_url, headers, payload, expect_async=True)
+        request_id = submit.get("requestId") or submit.get("request_id")
+        if not request_id:
+            # Some deployments return the result inline (sync).
+            if "choices" in submit:
+                return submit  # type: ignore[return-value]
+            raise RuntimeError(f"NVCF submit returned no requestId: {submit!r}")
+        # 2) poll
+        status_url = f"{invoke_url.rsplit('/functions/', 1)[0]}/status/{request_id}"
+        for _ in range(_NVCF_POLL_MAX):
+            time.sleep(_NVCF_POLL_S)
+            st = self._raw_get(status_url, headers)
+            if st.get("status") == "COMPLETED" or "choices" in st:
+                return st  # type: ignore[return-value]
+            if st.get("status") in ("FAILED", "ERROR"):
+                raise RuntimeError(f"NVCF invocation failed: {st!r}")
+        raise RuntimeError("NVCF poll timed out waiting for completion")
+
+    def _raw_post(self, url: str, headers: dict[str, str], payload: dict[str, Any], expect_async: bool = False) -> dict[str, Any]:
+        with httpx.Client(timeout=_TIMEOUT_S) as client:
+            resp = client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            resp.raise_for_status()
+        return resp.json()  # type: ignore[return-value]
+
+    def _raw_get(self, url: str, headers: dict[str, str]) -> dict[str, Any]:
+        with httpx.Client(timeout=_TIMEOUT_S) as client:
+            resp = client.get(url, headers=headers)
+        if resp.status_code >= 400:
+            resp.raise_for_status()
+        return resp.json()  # type: ignore[return-value]
+
 
 def _coerce_tool_args(args: dict[str, Any]) -> dict[str, Any]:
     """LLMs frequently return JSON strings for numeric/bool tool fields.
@@ -123,3 +185,4 @@ def _coerce_tool_args(args: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 pass  # leave as-is; Pydantic/CounterOffer validation rejects real garbage
     return args
+

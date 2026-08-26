@@ -41,8 +41,9 @@ Open http://localhost:3000
 
 The Next dev server proxies `/api/*` → `http://localhost:8000` (see
 `next.config.mjs`), so the browser talks same-origin — no CORS, and the
-`X-Buyer-Key` header is allowed. To point at a different backend:
-`BACKEND_URL=http://host:port npm run dev`.
+`X-Buyer-Key` header is allowed. `experimental.proxyTimeout` is set to 120s so
+slow LLM negotiate turns are not cut off by Next’s default 30s rewrite limit.
+To point at a different backend: `BACKEND_URL=http://host:port npm run dev`.
 
 ## Project layout
 

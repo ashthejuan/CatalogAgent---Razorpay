@@ -132,13 +132,15 @@ def _audit_escalate(negotiation_id: str, turn: int, reason: str) -> None:
     )
 
 
-def _audit_accept(negotiation_id: str, turn: int, offer: CounterOffer) -> None:
+def _audit_accept(negotiation_id: str, turn: int, offer: CounterOffer, reason: str | None = None) -> None:
     db.append_audit(
         negotiation_id,
         turn,
         "merchant_llm",
         "accept",
         offer.model_dump(),
+        verdict="PASS",
+        reason=reason or "all bounds satisfied; accepting buyer offer",
     )
 
 
@@ -197,14 +199,20 @@ def _finalize_proposal(
     session: PolicySession,
     offer: CounterOffer,
 ) -> MerchantTurnResult:
-    _audit_proposal(negotiation_id, turn, offer)
+    """LLM proposes; code disposes. Legal counters are presented without a PASS row.
+
+    Soft-illegal LLM proposals are discarded quietly (buyer FAIL already audited)
+    and replaced with one ``merchant_llm`` fallback — no extra FAIL row on the
+    merchant turn. Structural fails still audit FAIL + escalate.
+    """
     verdict = check(offer, session)
-    _audit_verdict(negotiation_id, turn, offer, verdict)
 
     if verdict.passed:
+        _audit_proposal(negotiation_id, turn, offer)
         return MerchantTurnResult(action="counter_offer", offer=offer, verdict=verdict)
 
     if _is_structural_fail(verdict.reason):
+        _audit_verdict(negotiation_id, turn, offer, verdict)
         _audit_escalate(negotiation_id, turn, verdict.reason)
         return MerchantTurnResult(action="escalate", reason=verdict.reason, verdict=verdict)
 
@@ -213,7 +221,6 @@ def _finalize_proposal(
     return MerchantTurnResult(
         action="counter_offer",
         offer=fallback,
-        reason=verdict.reason,
         verdict=verdict,
     )
 
@@ -229,23 +236,39 @@ def run_merchant_turn(
     last_valid_buyer_offer: CounterOffer | None = None,
     max_turns: int = 4,
     llm: LLMClient | None = None,
+    merchant_turn: int | None = None,
 ) -> MerchantTurnResult:
-    """Run one merchant turn: LLM proposal → Gate 2 → Gate 3 → counter / accept / escalate."""
+    """Run one merchant response after a buyer offer.
+
+    Audit turns alternate per PRD §6.8: buyer half on ``turn`` (odd), merchant
+    half on ``merchant_turn`` (even). ``turn_count`` is still the buyer-offer
+    cycle index used by PolicySession / max_turns.
+    """
+    buyer_turn = turn
+    m_turn = merchant_turn if merchant_turn is not None else turn + 1
     session = PolicySession(product_id, turn_count, max_turns=max_turns)
 
     if turn_count >= max_turns:
         if last_valid_buyer_offer is not None:
-            _audit_accept(negotiation_id, turn, last_valid_buyer_offer)
+            _audit_accept(negotiation_id, m_turn, last_valid_buyer_offer)
             return MerchantTurnResult(action="accept", offer=last_valid_buyer_offer)
         reason = f"turn_count {turn_count} >= max_turns {max_turns}; no valid buyer offer to accept"
-        _audit_escalate(negotiation_id, turn, reason)
+        _audit_escalate(negotiation_id, m_turn, reason)
         return MerchantTurnResult(action="escalate", reason=reason)
 
     # Buyer already proposed a legal package — accept without another LLM proposal.
     buyer_verdict = check(buyer_offer, session)
     if buyer_verdict.passed:
-        _audit_accept(negotiation_id, turn, buyer_offer)
+        _audit_accept(
+            negotiation_id,
+            buyer_turn,
+            buyer_offer,
+            reason=buyer_verdict.reason,
+        )
         return MerchantTurnResult(action="accept", offer=buyer_offer, verdict=buyer_verdict)
+
+    # Buyer reject on the buyer turn; merchant counter starts the next turn.
+    _audit_verdict(negotiation_id, buyer_turn, buyer_offer, buyer_verdict)
 
     client = llm or LLMClient()
     last_error: str | None = None
@@ -263,15 +286,15 @@ def run_merchant_turn(
             )
         except (ValidationError, ValueError) as exc:
             last_error = str(exc)
-            _audit_malformed(negotiation_id, turn, last_error)
+            _audit_malformed(negotiation_id, m_turn, last_error)
             if attempt == 0:
                 continue
-            _audit_escalate(negotiation_id, turn, f"malformed_proposal after retry: {last_error}")
+            _audit_escalate(negotiation_id, m_turn, f"malformed_proposal after retry: {last_error}")
             return MerchantTurnResult(action="escalate", reason=last_error)
         else:
             return _finalize_proposal(
                 negotiation_id=negotiation_id,
-                turn=turn,
+                turn=m_turn,
                 session=session,
                 offer=offer,
             )
@@ -284,12 +307,16 @@ def run_turn(
     buyer_offer: CounterOffer,
     llm: LLMClient | None = None,
 ) -> MerchantTurnResult:
-    """One merchant turn using persisted negotiation state."""
-    turn = negotiation.turn_count + 1
+    """One merchant response using persisted negotiation state.
+
+    Buyer audit turn = ``2 * turn_count + 1``; merchant = buyer + 1.
+    """
+    buyer_turn = negotiation.turn_count * 2 + 1
     return run_merchant_turn(
         negotiation_id=negotiation.id,
         product_id=negotiation.product_id,
-        turn=turn,
+        turn=buyer_turn,
+        merchant_turn=buyer_turn + 1,
         turn_count=negotiation.turn_count,
         buyer_offer=buyer_offer,
         history=negotiation.history,
